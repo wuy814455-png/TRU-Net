@@ -7,9 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-# =========================================================
-# 基础工具
-# =========================================================
+
 def to_2tuple(x):
     if isinstance(x, tuple):
         return x
@@ -32,22 +30,16 @@ def pad_to_window_multiple(x: torch.Tensor, window_size: int):
 
 
 def crop_top_left(x: torch.Tensor, target_h: int, target_w: int):
-    """
-    从左上角裁剪到目标大小
-    """
+    
     return x[:, :, :target_h, :target_w]
 
 
 def trunc_normal_(tensor, mean=0., std=1.):
-    """
-    PyTorch 自带截断正态初始化的兼容调用
-    """
+   
     return nn.init.trunc_normal_(tensor, mean=mean, std=std)
 
 
-# =========================================================
-# DropPath
-# =========================================================
+
 def drop_path(x, drop_prob: float = 0., training: bool = False):
     if drop_prob == 0. or not training:
         return x
@@ -67,9 +59,7 @@ class DropPath(nn.Module):
         return drop_path(x, self.drop_prob, self.training)
 
 
-# =========================================================
-# Window 相关函数
-# =========================================================
+
 def window_partition(x, window_size):
     """
     x: (B, H, W, C)
@@ -82,9 +72,9 @@ def window_partition(x, window_size):
     pad_w = (window_size - W % window_size) % window_size
 
     if pad_h > 0 or pad_w > 0:
-        x = x.permute(0, 3, 1, 2).contiguous()   # (B, C, H, W)
+        x = x.permute(0, 3, 1, 2).contiguous() 
         x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
-        x = x.permute(0, 2, 3, 1).contiguous()   # (B, H_pad, W_pad, C)
+        x = x.permute(0, 2, 3, 1).contiguous()   
 
     H_p, W_p = H + pad_h, W + pad_w
     x = x.view(
@@ -128,9 +118,6 @@ def window_reverse(windows, window_size, pad):
     return x
 
 
-# =========================================================
-# MLP
-# =========================================================
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, drop=0.):
         super().__init__()
@@ -151,9 +138,6 @@ class Mlp(nn.Module):
         return x
 
 
-# =========================================================
-# Window Attention
-# =========================================================
 class WindowAttention(nn.Module):
     def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
         super().__init__()
@@ -223,9 +207,6 @@ class WindowAttention(nn.Module):
         return x
 
 
-# =========================================================
-# Swin Transformer Block
-# =========================================================
 class SwinTransformerBlock(nn.Module):
     def __init__(self,
                  dim,
@@ -260,9 +241,7 @@ class SwinTransformerBlock(nn.Module):
         self.mlp = Mlp(in_features=dim, hidden_features=int(dim * mlp_ratio), drop=drop)
 
     def calculate_mask(self, x_size, device):
-        """
-        动态生成 SW-MSA mask
-        """
+      
         h, w = x_size
         img_mask = torch.zeros((1, h, w, 1), device=device)
 
@@ -284,10 +263,7 @@ class SwinTransformerBlock(nn.Module):
         return attn_mask
 
     def forward(self, x, x_size):
-        """
-        x: (B, L, C)
-        x_size: (H, W)
-        """
+     
         h, w = x_size
         b, l, c = x.shape
         assert l == h * w, f"Token length {l} does not match H*W={h*w}"
@@ -322,9 +298,6 @@ class SwinTransformerBlock(nn.Module):
         return x
 
 
-# =========================================================
-# BasicLayer
-# =========================================================
 class BasicLayer(nn.Module):
     def __init__(self,
                  dim,
@@ -365,9 +338,7 @@ class BasicLayer(nn.Module):
         return x
 
 
-# =========================================================
-# RSTB
-# =========================================================
+
 class RSTB(nn.Module):
     def __init__(self,
                  dim,
@@ -412,9 +383,6 @@ class RSTB(nn.Module):
         return x + residual
 
 
-# =========================================================
-# Terrain Encoder
-# =========================================================
 class TerrainEncoder(nn.Module):
     def __init__(self, embed_dim=96):
         super().__init__()
@@ -428,15 +396,12 @@ class TerrainEncoder(nn.Module):
         )
 
     def forward(self, terrain: torch.Tensor, size_hw):
-        # size_hw 已经是 conv_first 输出的特征图尺寸，直接对齐即可
+       
         if terrain.shape[-2:] != torch.Size(list(size_hw)):
             terrain = F.interpolate(terrain, size=size_hw, mode='bilinear', align_corners=False)
         return self.net(terrain)
 
 
-# =========================================================
-# 5x Upsample
-# =========================================================
 class Upsample5x(nn.Module):
     def __init__(self, num_feat):
         super().__init__()
@@ -449,18 +414,9 @@ class Upsample5x(nn.Module):
         return self.body(x)
 
 
-# =========================================================
-# 独立的 Climate SwinIR
-# =========================================================
-class ClimateSwinIR33to161(nn.Module):
-    """
-    输入:
-        x       : (B, 5, 33, 33)
-        terrain : (B, 1, 960, 960) 或已对齐尺寸
 
-    输出:
-        (B, 1, 161, 161)
-    """
+class ClimateSwinIR33to161(nn.Module):
+  
     def __init__(self,
                  add_hgt=True,
                  final_hw=161,
@@ -488,10 +444,8 @@ class ClimateSwinIR33to161(nn.Module):
 
         self.mean = torch.zeros(1, 1, 1, 1)
 
-        # shallow feature extraction
         self.conv_first = nn.Conv2d(in_chans, embed_dim, kernel_size=3, stride=1, padding=1)
 
-        # terrain encoder
         if self.add_hgt:
             self.hgt_net = TerrainEncoder(embed_dim=embed_dim)
             self.conv_before_body = nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=3, stride=1, padding=1)
@@ -499,11 +453,10 @@ class ClimateSwinIR33to161(nn.Module):
             self.hgt_net = None
             self.conv_before_body = None
 
-        # stochastic depth schedule
         total_depth = sum(depths)
         dpr = torch.linspace(0, drop_path_rate, total_depth).tolist()
 
-        # SwinIR body
+  
         self.layers = nn.ModuleList()
         cur = 0
         for i in range(len(depths)):
@@ -525,7 +478,7 @@ class ClimateSwinIR33to161(nn.Module):
         self.norm = nn.LayerNorm(embed_dim)
         self.conv_after_body = nn.Conv2d(embed_dim, embed_dim, kernel_size=3, stride=1, padding=1)
 
-        # reconstruction
+      
         self.conv_before_upsample = nn.Sequential(
             nn.Conv2d(embed_dim, 64, kernel_size=3, stride=1, padding=1),
             nn.LeakyReLU(inplace=True)
@@ -545,12 +498,9 @@ class ClimateSwinIR33to161(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     def forward_features(self, x):
-        """
-        x: (B, C, H, W)
-        return: (B, C, H, W)
-        """
+        
         x_size = (x.shape[2], x.shape[3])
-        x = x.flatten(2).transpose(1, 2)  # (B, HW, C)
+        x = x.flatten(2).transpose(1, 2)  
 
         for layer in self.layers:
             x = layer(x, x_size)
@@ -562,11 +512,7 @@ class ClimateSwinIR33to161(nn.Module):
         return x
 
     def forward(self, x, terrain=None):
-        """
-        支持两种输入：
-        1) forward(x, terrain)
-        2) forward({'lq': x, 'hgt': terrain})
-        """
+        
         if isinstance(x, dict):
             terrain = x['hgt']
             x = x['lq']
@@ -576,42 +522,38 @@ class ClimateSwinIR33to161(nn.Module):
 
         orig_h, orig_w = x.shape[-2], x.shape[-1]
 
-        # 先把 33x33 补到 8 的倍数，避免 window partition 报错
+        
         x, _, _ = pad_to_window_multiple(x, self.window_size)
 
-        # 归一化
+    
         self.mean = self.mean.type_as(x)
         x = (x - self.mean) * self.img_range
 
-        # 浅层特征
         x = self.conv_first(x)
         body_input = x
 
-        # 地形融合：在 conv_first 之后才对齐，确保尺寸匹配
+        
         if self.add_hgt:
             hgt_feat = self.hgt_net(terrain, size_hw=(x.shape[2], x.shape[3]))
             x = torch.cat([x, hgt_feat], dim=1)
             x = self.conv_before_body(x)
             body_input = x
 
-        # SwinIR body
+       
         x = self.forward_features(x)
         x = self.conv_after_body(x) + body_input
 
-        # 重建
+     
         x = self.conv_before_upsample(x)
         x = self.upsample(x)
         x = self.conv_last(x)
 
-        # 反归一化
         x = x / self.img_range + self.mean
 
-        # 先裁回 33 -> 165 对应的区域
         target_h = orig_h * self.upscale
         target_w = orig_w * self.upscale
         x = crop_top_left(x, target_h, target_w)
 
-        # 再裁到 161x161
         if self.final_hw is not None:
             x = crop_top_left(x, self.final_hw, self.final_hw)
 
