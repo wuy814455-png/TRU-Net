@@ -189,11 +189,3 @@ The evaluation procedure is integrated into
 ```
 preprocess_and_train.py
 ```
-
-
-
-
-
-```
-Email:
-```
