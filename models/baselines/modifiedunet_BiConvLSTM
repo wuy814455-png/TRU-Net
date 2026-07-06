@@ -1,0 +1,570 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import torch
+import torch.nn as nn
+
+
+# =========================================================
+# 通用工具
+# =========================================================
+def ensure_5d(x: torch.Tensor):
+    """
+    统一到 (B, T, C, H, W)
+    若输入是 (B, C, H, W)，则自动补一个 T=1
+    """
+    if x.dim() == 4:
+        return x.unsqueeze(1), True
+    if x.dim() == 5:
+        return x, False
+    raise ValueError(f"Unsupported input shape: {tuple(x.shape)}")
+
+
+def apply_2d_module_over_time(module: nn.Module, x: torch.Tensor):
+    """
+    对 4D/5D 张量应用 2D 模块。
+    - 4D: (B, C, H, W) -> (B, C', H', W')
+    - 5D: (B, T, C, H, W) -> (B, T, C', H', W')
+    """
+    if x.dim() == 4:
+        return module(x)
+
+    if x.dim() != 5:
+        raise ValueError(f"Unsupported input shape: {tuple(x.shape)}")
+
+    b, t, c, h, w = x.shape
+    y = module(x.reshape(b * t, c, h, w))
+    if y.dim() != 4:
+        raise RuntimeError("The wrapped module must return a 4D tensor.")
+    y = y.reshape(b, t, y.shape[1], y.shape[2], y.shape[3])
+    return y
+
+def center_crop_like(src, target):
+    """
+    将 src 裁剪到 target 的空间尺寸
+    src:    (B,C,H,W)
+    target: (B,C,h,w)
+    """
+
+    _, _, H, W = src.shape
+    _, _, h, w = target.shape
+
+    top = (H - h) // 2
+    left = (W - w) // 2
+
+    return src[
+        :,
+        :,
+        top:top + h,
+        left:left + w
+    ]
+
+# =========================================================
+# 1) Modified U-Net
+# =========================================================
+class DoubleConv(nn.Module):
+    """
+    Conv -> BN -> ReLU -> Conv -> BN -> ReLU
+    """
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class ModifiedUNetTD(nn.Module):
+    """
+    Chung et al. 风格 Modified U-Net
+
+    修改内容：
+    --------------------------------
+    AvgPool 代替 MaxPool
+
+    Encoder:
+        6 -> 32
+        32 -> 64
+        64 -> 128
+
+    Decoder:
+        128 -> 64
+        64 -> 32
+
+    最终:
+        33x33 -> 161x161
+
+    支持:
+        (B,C,H,W)
+        (B,T,C,H,W)
+    """
+
+    def __init__(
+            self,
+            inputchannel=6,
+            outputchannel=1):
+
+        super().__init__()
+
+        # =====================================================
+        # Avg Pool
+        # =====================================================
+        self.pool = nn.AvgPool2d(
+            kernel_size=2,
+            stride=2
+        )
+
+        # =====================================================
+        # Encoder
+        # =====================================================
+        self.enc1 = DoubleConv(
+            inputchannel,
+            32
+        )
+
+        self.enc2 = DoubleConv(
+            32,
+            64
+        )
+
+        self.enc3 = DoubleConv(
+            64,
+            128
+        )
+
+        # =====================================================
+        # Decoder
+        # =====================================================
+        self.upconv3 = nn.ConvTranspose2d(
+            128,
+            64,
+            kernel_size=2,
+            stride=2
+        )
+
+        self.dec3 = DoubleConv(
+            128,
+            64
+        )
+
+        self.upconv2 = nn.ConvTranspose2d(
+            64,
+            32,
+            kernel_size=2,
+            stride=2
+        )
+
+        self.dec2 = DoubleConv(
+            64,
+            32
+        )
+
+        # =====================================================
+        # 33 -> 161
+        # =====================================================
+        self.final_upconv = nn.Sequential(
+
+            nn.ConvTranspose2d(
+                32,
+                32,
+                kernel_size=5,
+                stride=5,
+                output_padding=1
+            ),
+
+            nn.Conv2d(
+                32,
+                32,
+                kernel_size=5,
+                padding=2
+            ),
+
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(
+                32,
+                outputchannel,
+                kernel_size=3,
+                padding=1
+            )
+        )
+
+    # =====================================================
+    # 4D
+    # =====================================================
+    def _forward_4d(self, x):
+
+        # -----------------------------
+        # Encoder
+        # -----------------------------
+        e1 = self.enc1(x)                    # 33
+
+        e2 = self.enc2(
+            self.pool(e1)
+        )                                    # 16
+
+        e3 = self.enc3(
+            self.pool(e2)
+        )                                    # 8
+
+        # -----------------------------
+        # Decoder
+        # -----------------------------
+        d3 = self.upconv3(e3)                # 16
+
+        d3 = self.dec3(
+            torch.cat(
+                [d3, e2],
+                dim=1
+            )
+        )
+
+        d2 = self.upconv2(d3)                # 32
+
+        e1_crop = center_crop_like(
+            e1,
+            d2
+        )
+
+        d2 = self.dec2(
+            torch.cat(
+                [d2, e1_crop],
+                dim=1
+            )
+        )
+
+        out = self.final_upconv(d2)
+
+        out = out[:, :, :161, :161]
+
+        return out
+
+    # =====================================================
+    # 5D
+    # =====================================================
+    def _forward_5d(self, x):
+
+        e1 = apply_2d_module_over_time(
+            self.enc1,
+            x
+        )
+
+        e2 = apply_2d_module_over_time(
+            self.enc2,
+            apply_2d_module_over_time(
+                self.pool,
+                e1
+            )
+        )
+
+        e3 = apply_2d_module_over_time(
+            self.enc3,
+            apply_2d_module_over_time(
+                self.pool,
+                e2
+            )
+        )
+
+        d3 = apply_2d_module_over_time(
+            self.upconv3,
+            e3
+        )
+
+        d3 = apply_2d_module_over_time(
+            self.dec3,
+            torch.cat(
+                [d3, e2],
+                dim=2
+            )
+        )
+
+        d2 = apply_2d_module_over_time(
+            self.upconv2,
+            d3
+        )
+
+        # 5D裁剪
+        b, t, c, h, w = d2.shape
+
+        e1_reshape = e1.reshape(
+            b * t,
+            e1.shape[2],
+            e1.shape[3],
+            e1.shape[4]
+        )
+
+        d2_reshape = d2.reshape(
+            b * t,
+            d2.shape[2],
+            d2.shape[3],
+            d2.shape[4]
+        )
+
+        e1_crop = center_crop_like(
+            e1_reshape,
+            d2_reshape
+        )
+
+        e1_crop = e1_crop.reshape(
+            b,
+            t,
+            e1_crop.shape[1],
+            e1_crop.shape[2],
+            e1_crop.shape[3]
+        )
+
+        d2 = apply_2d_module_over_time(
+            self.dec2,
+            torch.cat(
+                [d2, e1_crop],
+                dim=2
+            )
+        )
+
+        out = apply_2d_module_over_time(
+            self.final_upconv,
+            d2
+        )
+
+        out = out[..., :161, :161]
+
+        return out
+
+    # =====================================================
+    # forward
+    # =====================================================
+    def forward(self, x):
+
+        if x.dim() == 4:
+            return self._forward_4d(x)
+
+        if x.dim() == 5:
+            return self._forward_5d(x)
+
+        raise ValueError(
+            f"Unsupported input shape: {tuple(x.shape)}"
+        )
+
+
+# =========================================================
+# 2) BiConvLSTM
+# =========================================================
+class ConvLSTMCell(nn.Module):
+    def __init__(self, input_dim, hidden_dim, kernel_size=3, bias=True):
+        super().__init__()
+        if isinstance(kernel_size, tuple):
+            padding = (kernel_size[0] // 2, kernel_size[1] // 2)
+        else:
+            padding = kernel_size // 2
+
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.conv = nn.Conv2d(
+            input_dim + hidden_dim,
+            4 * hidden_dim,
+            kernel_size=kernel_size,
+            padding=padding,
+            bias=bias,
+        )
+
+    def forward(self, x, h_cur, c_cur):
+        combined = torch.cat([x, h_cur], dim=1)
+        gates = self.conv(combined)
+        i, f, o, g = torch.chunk(gates, 4, dim=1)
+
+        i = torch.sigmoid(i)
+        f = torch.sigmoid(f)
+        o = torch.sigmoid(o)
+        g = torch.tanh(g)
+
+        c_next = f * c_cur + i * g
+        h_next = o * torch.tanh(c_next)
+        return h_next, c_next
+
+    def init_state(self, batch_size, height, width, device):
+        h = torch.zeros(batch_size, self.hidden_dim, height, width, device=device)
+        c = torch.zeros(batch_size, self.hidden_dim, height, width, device=device)
+        return h, c
+
+
+class ConvBlock(nn.Module):
+    """
+    两层 3x3 Conv + ReLU
+    论文中的 Convin / terrain embedding / Convout 都可以用这个块表达
+    """
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class BiConvLSTMLayer(nn.Module):
+    """
+    单层 BiConvLSTM，对应论文中的一层 bidirectional ConvLSTM。
+    加法融合：
+        x_t^l = Convin(x_t) + h_f,t + h_b,t
+    """
+    def __init__(self, in_channels=8, hidden_dim=8, kernel_size=3):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+
+        # 论文中的 Convin：两层 3×3 Conv + ReLU
+        self.convin = ConvBlock(in_channels, hidden_dim)
+
+        self.forward_cell = ConvLSTMCell(hidden_dim, hidden_dim, kernel_size=kernel_size, bias=True)
+        self.backward_cell = ConvLSTMCell(hidden_dim, hidden_dim, kernel_size=kernel_size, bias=True)
+
+    def forward(self, x):
+        """
+        x: (B, C, H, W) 或 (B, T, C, H, W)
+        返回:
+            4D 输入 -> (B, hidden_dim, H, W)
+            5D 输入 -> (B, T, hidden_dim, H, W)
+        """
+        x5, squeezed = ensure_5d(x)   # (B, T, C, H, W)
+        x5 = apply_2d_module_over_time(self.convin, x5)  # (B, T, hidden_dim, H, W)
+
+        b, t, c, h, w = x5.shape
+
+        # forward
+        h_f, c_f = self.forward_cell.init_state(b, h, w, x5.device)
+        forward_states = []
+        for ti in range(t):
+            h_f, c_f = self.forward_cell(x5[:, ti], h_f, c_f)
+            forward_states.append(h_f)
+
+        # backward
+        h_b, c_b = self.backward_cell.init_state(b, h, w, x5.device)
+        backward_states = []
+        for ti in reversed(range(t)):
+            h_b, c_b = self.backward_cell(x5[:, ti], h_b, c_b)
+            backward_states.append(h_b)
+        backward_states = backward_states[::-1]
+
+        # 加法融合，贴近论文
+        fused_seq = []
+        for ti in range(t):
+            fused_seq.append(x5[:, ti] + forward_states[ti] + backward_states[ti])
+
+        out = torch.stack(fused_seq, dim=1)  # (B, T, hidden_dim, H, W)
+
+        if squeezed:
+            return out.squeeze(1)  # (B, hidden_dim, H, W)
+        return out
+
+
+class BiConvLSTM(nn.Module):
+    """
+    适配 comparison_train_bilstm.py 的 BiConvLSTM。
+
+    数据约定（与 A0720SAadjust0804_34_10_simple.py 缓存一致）：
+        x : (B, 6, 33, 33)
+            通道顺序：t2m, d2m, v10, ssrd, mask, terrain
+            第6通道（index 5）是降采样到33×33的地形，已z-score标准化
+
+    调用方式：
+        outputs = model(x)        ← 单参数，与训练脚本一致
+
+    输出：(B, 1, 161, 161)  z-score空间
+    """
+    def __init__(self, inputchannel=6, outputchannel=1, hidden_dim=8):
+        super().__init__()
+
+        self.hidden_dim = hidden_dim
+        self.inputchannel = inputchannel
+
+        # 气象通道数 = inputchannel - 1（最后一个通道是地形）
+        self.met_channels = inputchannel - 1   # 5
+
+        # 两层 BiConvLSTM，接收气象变量（不含地形通道）
+        self.layer1 = BiConvLSTMLayer(
+            in_channels=self.met_channels,
+            hidden_dim=hidden_dim,
+            kernel_size=3
+        )
+        self.layer2 = BiConvLSTMLayer(
+            in_channels=hidden_dim,
+            hidden_dim=hidden_dim,
+            kernel_size=3
+        )
+
+        # terrain 分支：接收33×33地形（1通道）→ hidden_dim
+        self.terrain_branch = nn.Sequential(
+            nn.Conv2d(1, hidden_dim, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True),
+        )
+
+        # 输出卷积（低分辨率空间）
+        self.conv_out = nn.Sequential(
+            nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True),
+        )
+
+        # 上采样头：33×33 → 165×165（PixelShuffle×5），裁到161×161
+        # 替代原 nn.Upsample，赋予模型学习高频细节的能力
+        self.upsample_head = nn.Sequential(
+            nn.Conv2d(hidden_dim, hidden_dim * 25, kernel_size=3, padding=1),
+            nn.PixelShuffle(5),                                    # → (B, hidden_dim, 165, 165)
+            nn.Conv2d(hidden_dim, hidden_dim // 2, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(hidden_dim // 2, outputchannel, kernel_size=3, padding=1),
+        )
+
+    def forward(self, x, terrain=None):
+        """
+        x       : (B, 6, 33, 33)  — 6通道，最后一个通道是地形
+        terrain : 保留参数接口，传入时忽略（地形已在第6通道）
+        """
+        if x.dim() == 4:
+            b, c, h, w = x.shape
+        elif x.dim() == 5:
+            b, t, c, h, w = x.shape
+        else:
+            raise ValueError(f"Unsupported input shape: {tuple(x.shape)}")
+
+        # 分离气象通道和地形通道
+        if x.dim() == 4:
+            met = x[:, :self.met_channels, :, :]         # (B, 5, H, W)
+            terrain_33 = x[:, self.met_channels:, :, :]  # (B, 1, H, W)
+            met_seq = met.unsqueeze(1)                    # (B, 1, 5, H, W)
+        else:
+            met_seq = x[:, :, :self.met_channels, :, :]  # (B, T, 5, H, W)
+            terrain_33 = x[:, 0, self.met_channels:, :, :]  # (B, 1, H, W)
+
+        # BiConvLSTM 两层
+        feat = self.layer1(met_seq)   # (B, T, hidden_dim, H, W)
+        feat = self.layer2(feat)      # (B, T, hidden_dim, H, W)
+
+        # terrain 分支融合
+        terrain_feat = self.terrain_branch(terrain_33)  # (B, hidden_dim, H, W)
+        feat = feat + terrain_feat.unsqueeze(1)          # 广播到每个时间步
+
+        # 取最后时刻
+        feat = feat[:, -1]   # (B, hidden_dim, H, W)
+
+        # 输出卷积
+        feat = self.conv_out(feat)   # (B, hidden_dim, H, W)
+
+        # 上采样到 161×161
+        out = self.upsample_head(feat)   # (B, 1, 165, 165)
+        out = out[:, :, :161, :161]      # (B, 1, 161, 161)
+
+        return out
