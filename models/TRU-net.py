@@ -106,27 +106,27 @@ class TerrainFeatureExtractor(nn.Module):
         t1 = self.conv1(x)
         t1 = self.bn1(t1)
         t1 = self.relu1(t1)
-        t1_out = self.pool1(t1)  # [batch_size, 64, 33, 33]
-        t1_out = self.adjust1(t1_out)  # [batch_size, 64, 33, 33]
-        # 480x480 → 240x240 → 17x17
+        t1_out = self.pool1(t1)  
+        t1_out = self.adjust1(t1_out) 
+        
         t2 = self.conv2(t1)
         t2 = self.bn2(t2)
         t2 = self.relu2(t2)
-        t2_out = self.pool2(t2)  # [batch_size, 128, 17, 17]
-        t2_out = self.adjust2(t2_out)  # [batch_size, 128, 17, 17]
-        # 240x240 → 120x120 → 9x9
+        t2_out = self.pool2(t2) 
+        t2_out = self.adjust2(t2_out)  
+     
         t3 = self.conv3(t2)
         t3 = self.bn3(t3)
         t3 = self.relu3(t3)
-        t3_out = self.pool3(t3)  # [batch_size, 256, 9, 9]
-        t3_out = self.adjust3(t3_out)  # [batch_size, 256, 9, 9]
-        # 120x120 → 60x60 → 5x5
+        t3_out = self.pool3(t3) 
+        t3_out = self.adjust3(t3_out)  
+        
         t4 = self.conv4(t3)
         t4 = self.bn4(t4)
         t4 = self.relu4(t4)
-        t4_out = self.pool4(t4)  # [batch_size, 512, 5, 5]
-        t4_out = self.adjust4(t4_out)  # [batch_size, 512, 5, 5]
-        # 60x60 → 5x5
+        t4_out = self.pool4(t4)  
+        t4_out = self.adjust4(t4_out)  
+  
         t5 = self.conv5(t4)
         t5 = self.bn5(t5)
         t5 = self.relu5(t5)
@@ -180,7 +180,7 @@ class Res34_Unet(nn.Module):  # Modified: Renamed from Res2Net50_Unet to Res34_U
             nn.AdaptiveAvgPool2d(output_size)
         )
         if resnet_pretrain:
-            # Modified: Simplified pretrained weight loading for ResNet34
+           
             state_dict = self.resnet.state_dict()
             if inputchannel != 3:
                 pretrained_conv1_weight = state_dict['conv1.weight']
@@ -217,7 +217,7 @@ class Res34_Unet(nn.Module):  # Modified: Renamed from Res2Net50_Unet to Res34_U
         output = self.final_upsample(d3)
         return output
 
-class ModifiedRes34_Unet(Res34_Unet):  # Modified: Renamed from ModifiedRes2Net50_Unet
+class ModifiedRes34_Unet(Res34_Unet):
     def __init__(self, inputchannel, outputchannel, BN_enable=True, resnet_pretrain=True, output_size=(161, 161)):
         super().__init__(inputchannel, outputchannel, BN_enable=BN_enable, resnet_pretrain=resnet_pretrain, output_size=output_size)
 
