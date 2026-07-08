@@ -52,12 +52,9 @@ Contains the neural network implementations used in this study.
 
 - **baselines.py**
 
-  Implementations of all baseline models used in the manuscript, including
+  Implementations of baseline model, including
 
   - U-Net
-  - ResNet34-U-Net
-  - Simple Terrain baseline
-  - other comparison models
 
 ---
 
@@ -105,7 +102,7 @@ The datasets used in this study are publicly available.
 
 ECMWF S2S Reforecast Dataset
 
-https://apps.ecmwf.int/datasets/
+https://apps.ecmwf.int/datasets
 
 ## Target Data
 
