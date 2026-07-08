@@ -55,13 +55,13 @@ class UNet(nn.Module):
        
         b = self.bottleneck(self.pool(e4))  
        
-        d4 = self.upconv4(b)  # 512, 4x4
+        d4 = self.upconv4(b)  
         d4 = self.dec4(torch.cat([d4, e4], dim=1))  
-        d3 = self.upconv3(d4)  # 256, 8x8
+        d3 = self.upconv3(d4)  
         d3 = self.dec3(torch.cat([d3, e3], dim=1)) 
-        d2 = self.upconv2(d3)  # 128, 16x16
+        d2 = self.upconv2(d3)  
         d2 = self.dec2(torch.cat([d2, e2], dim=1))  
-        d1 = self.upconv1(d2)  # 64, 33x33
+        d1 = self.upconv1(d2) 
         d1 = self.dec1(torch.cat([d1, e1], dim=1))  
       
         out = self.final_upconv(d1)[:, :, :161, :161] 
