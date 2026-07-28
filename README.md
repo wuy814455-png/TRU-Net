@@ -1,188 +1,175 @@
 # TRU-Net
-Terrain-aware U-Net for S2S Temperature Bias Correction and Downscaling
-# TRU-Net: Terrain-aware Residual U-Net for Subseasonal 2-m Temperature Bias Correction and Downscaling
 
-Official implementation of the manuscript:
+**Terrain-aware Residual U-Net for Subseasonal 2-m Temperature Bias Correction and Downscaling**
 
-> **TRU-Net: Terrain-aware Residual U-Net for Subseasonal 2-m Temperature Bias Correction and Downscaling**
+This repository contains the implementation of TRU-Net, its ablation variants, the U-Net baseline, and the scripts used for data preprocessing, model training, and evaluation.
 
 ---
 
-# Overview
+## Repository Structure
 
-This repository provides the official implementation of **TRU-Net**, a terrain-aware deep learning framework for subseasonal (day 7–42) 2-m air temperature bias correction and downscaling.
-
-The proposed framework is designed for S2S (Subseasonal-to-Seasonal) temperature prediction over North China. By incorporating multi-scale terrain information into a residual U-Net architecture, TRU-Net improves the representation of terrain-induced spatial heterogeneity and enhances forecast skill over regions with complex topography.
-
-The repository contains the minimum set of source code required to reproduce the main experiments presented in the manuscript, including
-
-- model architectures,
-- baseline implementations,
-- preprocessing,
-- training,
-- evaluation.
-
----
-
-# Repository Structure
-
-```
+```text
 TRU-Net/
-│
 ├── models/
-│   ├── trunet.py
-│   └── baselines.py
-│
-├── preprocess_and_train.py
-│
-├── requirements.txt
-│
+│   ├── TRU-net.py
+│   └── baselines/
+│       ├── NoTerrain
+│       ├── Simple
+│       ├── Single
+│       └── unet.py
+├── process.py
+├── train.py
+├── evaluate.py
+├── requirement
+├── LICENSE
 └── README.md
-```
+````
 
-### Description
+### File Description
 
-### models/
-
-Contains the neural network implementations used in this study.
-
-- **trunet.py**
-
-  Implementation of the proposed TRU-Net.
-
-- **baselines.py**
-
-  Implementations of baseline model, including
-
-  - U-Net
+* `models/TRU-net.py`: implementation of the proposed TRU-Net model.
+* `models/baselines/NoTerrain`: TRU-Net variant without terrain information.
+* `models/baselines/Simple`: simplified terrain-processing variant.
+* `models/baselines/Single`: single-stage terrain-fusion variant.
+* `models/baselines/unet.py`: U-Net baseline.
+* `process.py`: data preprocessing and dataset preparation.
+* `train.py`: model training and validation.
+* `evaluate.py`: model evaluation and metric calculation.
 
 ---
 
-### preprocess_and_train.py
+## Requirements
 
-Contains the complete workflow including
+The experiments were conducted using:
 
-- data preprocessing
-- feature preparation
-- model training
-- validation
-- evaluation
+* Python 3.9
+* PyTorch 2.5.1
+* CUDA 11.8
 
-The implementation follows the methodology described in the manuscript.
-
----
-
-# Requirements
-
-The experiments were conducted under the following environment.
-
-- Python 3.9
-- PyTorch 2.5.1
-- CUDA 11.8
-
-Required Python packages are listed in
-
-```
-requirements.txt
-```
-
-Install all dependencies by
+Install the required packages using:
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirement
 ```
 
 ---
 
-# Data
+## Data
 
-The datasets used in this study are publicly available.
+The datasets used in this study are publicly available but are not included in this repository because of their large size.
 
-## Forecast Data
+### Forecast Data
 
-ECMWF S2S Reforecast Dataset
+ECMWF S2S reforecast data:
 
-https://apps.ecmwf.int/datasets
+[https://apps.ecmwf.int/datasets](https://apps.ecmwf.int/datasets)
 
-## Target Data
+### Target Data
 
-ERA5-Land Reanalysis Dataset
+ERA5-Land reanalysis data:
 
-https://cds.climate.copernicus.eu/
-
-Because of the large volume of these datasets, they are **not included** in this repository.
-
-Users should download the original datasets from the official providers.
+[https://cds.climate.copernicus.eu/](https://cds.climate.copernicus.eu/)
 
 ---
 
-# Data Preparation
+## Usage
 
-Before training, users should preprocess the downloaded datasets following the procedure described in Section XX of the manuscript.
+The workflow is divided into preprocessing, training, and evaluation.
 
-The preprocessing includes
+### 1. Data Preprocessing
 
-- extracting the study region
-- temporal matching
-- spatial interpolation
-- terrain preparation
-- normalization
-- generation of training samples
-
-The preprocessing pipeline is implemented in
-
-```
-preprocess_and_train.py
-```
-
----
-
-# Training
-
-To train the proposed model,
+Run:
 
 ```bash
-python preprocess_and_train.py
+python process.py
+```
+The processed training, validation, and test data are saved for use by the training and evaluation scripts.
+
+### 2. Model Training
+
+Run:
+
+```bash
+python train.py
 ```
 
-The script performs
+The model and data paths should be checked in the script before training.
 
-1. preprocessing
+### 3. Model Evaluation
 
-2. model training
+Run:
 
-3. validation
+```bash
+python evaluate.py
+```
 
-4. evaluation
+This script loads the processed test data and the saved model checkpoint, calculates the evaluation metrics, and saves the evaluation results.
 
 ---
 
-# Baseline Models
+## Included Models
 
-The repository includes the implementations of all baseline models used in the paper.
+The following models are included in this repository:
 
-These models are implemented under
+### Proposed Model
 
-```
-models/baselines.py
-```
+* TRU-Net
 
-and are trained under the same preprocessing and evaluation framework as TRU-Net.
+### Ablation Variants
+
+* NoTerrain
+* Simple
+* Single-stage
+
+### Baseline Model
+
+* U-Net
+
+The included models use the same preprocessing and evaluation procedures.
 
 ---
 
-# Evaluation
+## Additional Literature Baselines
 
-The evaluation follows the experimental protocol described in the manuscript.
+The manuscript also compares TRU-Net with three deep learning methods reported in previous studies.
 
-Metrics include
+The corresponding references are provided below.
 
-- RMSE
-- PCC
-- Accuracy
+### Modified U-Net
 
-The evaluation procedure is integrated into
+[https://doi.org/10.1016/j.heliyon.2024.e35933](https://doi.org/10.1016/j.heliyon.2024.e35933)
+
+### BiConvLSTM
+
+[https://doi.org/10.1002/qj.4989](https://doi.org/10.1002/qj.4989)
+
+### SwinIR
+
+[https://doi.org/10.1002/qj.4596](https://doi.org/10.1002/qj.4596)
+
+---
+
+## Evaluation Metrics
+
+The main evaluation metrics are:
+
+* Root Mean Square Error (RMSE)
+* Pearson Correlation Coefficient (PCC)
+* Accuracy
+
+---
+
+## License
+
+This project is released under the terms specified in the [LICENSE](LICENSE) file.
+
+---
+
+## Citation
+
+Please cite the corresponding manuscript when using this repository.
+
+The complete citation information will be added after publication.
 
 ```
-preprocess_and_train.py
 ```
