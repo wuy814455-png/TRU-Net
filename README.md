@@ -13,9 +13,12 @@ TRU-Net/
 ├── models/
 │   ├── TRU-net.py
 │   └── baselines/
-│       ├── NoTerrain
-│       ├── Simple
-│       ├── Single
+│       ├── NoTerrain.py
+│       ├── Simple.py
+│       ├── Single.py
+│       ├── SWINIR.py
+│       ├── BiConvLSTM.py
+│       ├── ModifiedUNet.py
 │       └── unet.py
 ├── process.py
 ├── train.py
@@ -32,6 +35,9 @@ TRU-Net/
 * `models/baselines/Simple`: simplified terrain-processing variant.
 * `models/baselines/Single`: single-stage terrain-fusion variant.
 * `models/baselines/unet.py`: U-Net baseline.
+* * `models/baselines/SWINIR.py`: Comparsion model.
+  * * `models/baselines/BiConvLSTM.py`: Comparsion model.
+    * * `models/baselines/ModifiedUNet.py`: Comparsion model.
 * `process.py`: data preprocessing and dataset preparation.
 * `train.py`: model training and validation.
 * `evaluate.py`: model evaluation and metric calculation.
